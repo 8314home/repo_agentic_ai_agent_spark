@@ -1,0 +1,7 @@
+venv_ai_agent_spark/
+__pycache__/
+*.pyc
+.git/
+.env
+output_data/
+output_script/
