@@ -19,3 +19,11 @@ __pycache__/
 
 # Output files
 output_data/
+output_script/
+
+.venv/
+venv_ai_agent_spark/
+cdk.out/
+node_modules/
+.pytest_cache/
+__pycache__/
