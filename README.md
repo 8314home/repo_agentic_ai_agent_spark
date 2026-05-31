@@ -26,11 +26,55 @@ This agent **automates the code review and tuning cycle** by:
 The agent is designed as a **stateful, decoupled directed graph** managed by LangGraph:
 
 ```
-[Start] ➔ [Discover Schemas] ➔ [Analyze Code] ➔ [Generate Variants] ➔ [Validate & Benchmark] 
-   ➔ [Conditional Router] 
-      ├─ All Pass → [Evaluate & Select] ➔ [Compile README] ➔ [End]
-      ├─ Errors Detected → [Self-Heal Variants] ➔ [Re-validate] (max 2 retries)
-      └─ Max Retries Exhausted → [Compile README with Diagnostics] ➔ [End]
+               +--------------------+
+               |   Start Pipeline   |
+               +--------------------+
+                         │
+                         ▼
+               +--------------------+
+               |  Discover Schemas  |
+               +--------------------+
+                         │
+                         ▼
+               +--------------------+
+               |    Analyze Code    |
+               +--------------------+
+                         │
+                         ▼
+               +--------------------+
+               |  Generate Variants |
+               +--------------------+
+                         │
+                         ▼
+    ┌────────► +--------------------+
+    │          | Validate/Benchmark |
+    │          +--------------------+
+    │                    │
+    │                    ▼
+    │          +--------------------+
+    │          | Conditional Router |
+    │          +--------------------+
+    │            /        │         \
+    │      (Failures)  (Pass)    (Max Retries)
+    │          /          │           \
+    │         ▼           │            ▼
+  (Loop) +----------+     │     +---------------+
+    └────| Self-Heal|     │     | Graceful Fail |
+         +----------+     │     +---------------+
+                          ▼            │
+               +--------------------+  │
+               | Evaluate & Select  |  │
+               +--------------------+  │
+                         │             │
+                         ▼             ▼
+               +--------------------+  
+               |   Compile README   | ◄─┘
+               +--------------------+  
+                         │
+                         ▼
+               +--------------------+
+               |    End Pipeline    |
+               +--------------------+
 ```
 
 ### 🔁 Step-by-Step Execution Sequence
