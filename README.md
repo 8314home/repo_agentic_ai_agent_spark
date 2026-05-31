@@ -16,6 +16,7 @@ This agent **automates the code review and tuning cycle** by:
 - **Diagnosing Performance Bottlenecks**: Identifying anti-patterns using plain text architectural constraints.
 - **Generating Code Hypotheses Parallelly**: Compiling Baseline Structural versus Advanced Engine-Tuning alternatives.
 - **Programmatically Verifying Code Performance**: Executing alternatives inside an isolated runtime container to track execution durations and plan efficiency.
+- **Self-Healing Code Errors**: Automatically detecting and correcting syntax errors or runtime failures in generated code variants (up to 2 retry attempts per variant).
 - **Selecting Verified Winners**: Acting as a benchmark judge to select and output the highest performing code along with a professional architectural profile report.
 
 ---
@@ -25,7 +26,11 @@ This agent **automates the code review and tuning cycle** by:
 The agent is designed as a **stateful, decoupled directed graph** managed by LangGraph:
 
 ```
-[Start] ➔ [Discover Schemas] ➔ [Analyze Code] ➔ [Generate Variants] ➔ [Validate & Benchmark] ➔ [Evaluate & Select] ➔ [Compile README] ➔ [End]
+[Start] ➔ [Discover Schemas] ➔ [Analyze Code] ➔ [Generate Variants] ➔ [Validate & Benchmark] 
+   ➔ [Conditional Router] 
+      ├─ All Pass → [Evaluate & Select] ➔ [Compile README] ➔ [End]
+      ├─ Errors Detected → [Self-Heal Variants] ➔ [Re-validate] (max 2 retries)
+      └─ Max Retries Exhausted → [Compile README with Diagnostics] ➔ [End]
 ```
 
 ### 🔁 Step-by-Step Execution Sequence
@@ -38,9 +43,16 @@ The agent is designed as a **stateful, decoupled directed graph** managed by Lan
 
 4. **validate_and_explain**: Overrides output target locations, spins up an isolated Spark thread, runs the code strings using Python `exec()`, forces execution via `.count()`, captures exact millisecond execution times, and extracts the physical `explain(extended=True)` text.
 
-5. **evaluate_and_clean**: An LLM Judge weighs the execution metrics and plan overheads of both approaches to select the absolute high-performance winner.
+5. **Conditional Router (should_continue_or_heal)**: Evaluates validation results and intelligently routes the workflow:
+   - If all variants execute successfully → proceeds to evaluator
+   - If errors detected and retries remaining → routes to self-healing node
+   - If maximum retry attempts exhausted → gracefully exits with diagnostic documentation
 
-6. **compile_readme** (State Exit): Formulates an enterprise-ready markdown report compiling the diagnostic analysis and optimization metrics.
+6. **self_heal_variants**: An AI-powered debugging node that analyzes runtime error stack traces, identifies syntax errors or schema mismatches, and generates corrected code while preserving optimization strategies. Limited to 2 retry attempts per variant to prevent infinite loops.
+
+7. **evaluate_and_clean**: An LLM Judge weighs the execution metrics and plan overheads of both approaches to select the absolute high-performance winner. Now includes enhanced metadata output with winning variant name and measured execution runtime embedded as structured comments in the final code.
+
+8. **compile_readme** (State Exit): Formulates an enterprise-ready markdown report compiling the diagnostic analysis and optimization metrics.
 
 ---
 
@@ -56,7 +68,8 @@ agi_agent_spark/
 │   ├── analyzer.py         # Static code diagnostic scanner
 │   ├── optimizer.py        # Algorithmic PySpark variant generator
 │   ├── validator.py        # Code compilation & metric tracking engine
-│   └── evaluator.py        # LLM performance judge node
+│   ├── healer.py           # Self-healing code error correction node
+│   └── evaluator.py        # LLM performance judge node with enhanced metadata output
 ├── data/                   # Drop source CSV datasets here
 ├── input_script/           # Put your unoptimized *.py target scripts here
 ├── output_script/          # Agent generates optimized code and documentation here
@@ -79,7 +92,9 @@ agi_agent_spark/
 
 - **validator.py**: Dynamically intercepts the script's `OUTPUT_PATH` assignment variable to partition variant targets. It handles try-except-traceback layers to prevent silent execution crashes.
 
-- **evaluator.py**: Collates real runtime statistics down to the millisecond to choose the definitive optimized script.
+- **healer.py**: An intelligent self-healing node that automatically debugs and corrects failed code variants. It analyzes the original code, broken generated code, and runtime error traces to produce fixed versions while maintaining optimization strategies. Implements a maximum retry limit of 2 attempts per variant to ensure graceful failure handling.
+
+- **evaluator.py**: Collates real runtime statistics down to the millisecond to choose the definitive optimized script. Now generates enhanced output with structured comment headers containing the winning variant strategy name and measured execution runtime in seconds for improved traceability.
 
 ---
 
@@ -171,8 +186,11 @@ Once the container run logs complete successfully, inspect your workspace folder
 - ✅ **Real Execution Benchmarking**: Runs code variants in isolated Spark sessions
 - ✅ **Performance Metrics Tracking**: Captures execution times and Spark execution plans
 - ✅ **AI-Powered Code Review**: Uses LLM to identify bottlenecks and generate optimizations
+- ✅ **Self-Healing Error Correction**: Automatically detects and fixes syntax errors or runtime failures (max 2 retries)
+- ✅ **Conditional Intelligent Routing**: Smart workflow orchestration based on validation results
 - ✅ **Automatic Winner Selection**: LLM judge selects the best performing variant
-- ✅ **Professional Documentation**: Generates detailed performance reports
+- ✅ **Enhanced Metadata Output**: Winning code includes strategy name and execution runtime as structured comments
+- ✅ **Professional Documentation**: Generates detailed performance reports with comprehensive error diagnostics
 
 ---
 
