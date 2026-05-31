@@ -1,4 +1,6 @@
 # File: main.py
+# Run source venv_ai_agent_spark/bin/activate first
+
 import os
 from typing import TypedDict, List
 from dotenv import load_dotenv
@@ -14,6 +16,7 @@ from agent_node_functions.analyzer import analyze_code
 from agent_node_functions.schema_discovery import discover_schemas
 from agent_node_functions.optimizer import generate_variants
 from agent_node_functions.validator import validate_and_explain
+from agent_node_functions.healer import self_heal_variants
 from agent_node_functions.evaluator import evaluate_and_clean
 
 
@@ -89,20 +92,66 @@ def compile_readme(state: AgentState):
     })
     return {"readme_content": response.content}
 
+def should_continue_or_heal(state: AgentState):
+    """
+    Conditional Routing Function.
+    Evaluates whether all variants passed or if a retry healing loop is required.
+    """
+    all_success = True
+    max_retries_reached = False
+    
+    for v in state["variants"]:
+        if v.get("execution_error"):
+            all_success = False
+            # Check if any single variant has hit the max limit of 2 retry attempts
+            if v.get("retry_count", 0) >= 2:
+                max_retries_reached = True
+                
+    if all_success:
+        print("➡️ ROUTER: All variants passed validation cleanly. Routing to Evaluator node.")
+        return "evaluate"
+        
+    if max_retries_reached:
+        print("⚠️ ROUTER: Maximum self-healing attempts (2) exhausted. Forcing a graceful pipeline exit.")
+        return "force_graceful_exit"
+        
+    print("🔄 ROUTER: Validation failures detected. Routing code to Self-Healing Node.")
+    return "heal"
+
+
+
+
 # Construct graph state machine
+
 workflow = StateGraph(AgentState)
 workflow.add_node("discover_schemas", discover_schemas)
 workflow.add_node("analyze_code", analyze_code)
 workflow.add_node("generate_variants", generate_variants)
 workflow.add_node("validate_and_explain", validate_and_explain)
+
 workflow.add_node("evaluate_and_clean", evaluate_and_clean)
+workflow.add_node("self_heal_variants", self_heal_variants)
 workflow.add_node("compile_readme", compile_readme)
 
 workflow.set_entry_point("discover_schemas")
-workflow.add_edge("discover_schemas", "analyze_code") 
+workflow.add_edge("discover_schemas", "analyze_code")
 workflow.add_edge("analyze_code", "generate_variants")
 workflow.add_edge("generate_variants", "validate_and_explain")
-workflow.add_edge("validate_and_explain", "evaluate_and_clean")
+
+# conditional routing rule
+workflow.add_conditional_edges(
+    "validate_and_explain",
+    should_continue_or_heal,
+    {
+        "evaluate": "evaluate_and_clean",
+        "heal": "self_heal_variants",
+        "force_graceful_exit": "compile_readme" # Bypasses evaluator to document the failures gracefully
+    }
+)
+
+# RETRY : healer -> validator
+workflow.add_edge("self_heal_variants", "validate_and_explain")
+
 workflow.add_edge("evaluate_and_clean", "compile_readme")
 workflow.add_edge("compile_readme", END)
 app = workflow.compile()
@@ -129,24 +178,48 @@ def run_sdk_agent():
             "original_code": source_code
         })
         
-        # Write optimized script to OUTPUT_SCRIPT path
-
         unique_output_dir = os.path.join(OUTPUT_DIR, script_base_name)
         os.makedirs(unique_output_dir, exist_ok=True)
         
-        out_code_path = os.path.join(unique_output_dir, f"optimized_{script_file}")
-        out_readme_path = os.path.join(unique_output_dir, "README.md")
-        
-        with open(out_code_path, "w") as f:
-            f.write(result["best_code"])
-        with open(out_readme_path, "w") as f:
-            f.write(result["readme_content"])
+        # FAILED VARIANT : failed code and readme file
+        # Check if any variants still contain an execution error upon state graph exit
+        # or if the evaluator node was completely bypassed (meaning best_code is missing)
+
+        has_failed_variants = any(v.get("execution_error") for v in result.get("variants", []))
+        winning_code_exists = "best_code" in result and result["best_code"]
+
+        if has_failed_variants and not winning_code_exists:
+            # Fallback Handler: Self-healing attempts completely exhausted
+            out_code_path = os.path.join(unique_output_dir, f"FAILED_{script_file}")
+            out_readme_path = os.path.join(unique_output_dir, "README.md")
             
-        print(f"✅ Clean optimized code saved: {out_code_path}")
-        print(f"✅ Performance documentation saved: {out_readme_path}")
+            with open(out_code_path, "w") as f:
+                f.write(
+                    f"# Optimization failed for {script_file}.\n"
+                    f"# The self-healing loop was executed 2 times, but the generated variants still failed validation.\n"
+                    f"# Please inspect the comprehensive error tracking logs recorded inside README.md."
+                )
+            with open(out_readme_path, "w") as f:
+                f.write(result.get("readme_content", "# Error compiling optimization report."))
+                
+            print(f"⚠️ Execution could not self-heal automatically. Diagnostics saved inside: {unique_output_dir}")
+        else:
+            # Success Handler: Standard code and markdown documentation file writers
+            out_code_path = os.path.join(unique_output_dir, f"optimized_{script_file}")
+            out_readme_path = os.path.join(unique_output_dir, "README.md")
+            
+            with open(out_code_path, "w") as f:
+                f.write(result["best_code"])
+            with open(out_readme_path, "w") as f:
+                f.write(result["readme_content"])
+                
+            print(f"✅ Clean optimized code saved: {out_code_path}")
+            print(f"✅ Performance documentation saved: {out_readme_path}")
+            
         print("-" * 50)
 
     print("\n🎉 All scripts processed successfully!")
+
 
 if __name__ == "__main__":
     run_sdk_agent()
